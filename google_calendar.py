@@ -16,12 +16,23 @@ Task line formats supported:
 
 import os
 import re
+import base64
 from datetime import datetime, timedelta
 import pytz
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+
+# ── Decode Google credentials from Railway env vars ───────────────────────────
+for _fname, _env_key in [
+    ("credentials.json", "GOOGLE_CREDENTIALS_B64"),
+    ("token.json",       "GOOGLE_TOKEN_B64"),
+]:
+    _val = os.environ.get(_env_key)
+    if _val and not os.path.exists(_fname):
+        with open(_fname, "w") as _f:
+            _f.write(base64.b64decode(_val).decode())
 
 SCOPES     = ["https://www.googleapis.com/auth/calendar"]
 TOKEN_FILE = "token.json"
