@@ -1,5 +1,6 @@
 import logging
 import json
+import os
 from datetime import datetime
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,10 +12,10 @@ from google_calendar import create_tasks, get_todays_tasks, mark_task_complete
 from scheduler import setup_scheduler
 from storage import save_tasks, load_tasks, update_task_status
 from habit_tracker import (
-    add_habit, remove_habit, list_habits,
+    add_habit, set_reward, remove_habit, list_habits,
     mark_habit, get_habits_for_date,
-    get_streak, streak_emoji, get_weekly_summary,
-    get_monthly_progress, check_month_complete, set_reward,
+    get_streak, streak_emoji,
+    get_weekly_summary, get_monthly_progress, check_month_complete,
 )
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -24,10 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Config ────────────────────────────────────────────────────────────────────
-import os
-
-# Support both local config.json and Railway environment variables
+# ── Config — supports both local config.json and Railway env vars ─────────────
 if os.path.exists("config.json"):
     with open("config.json") as f:
         config = json.load(f)
@@ -42,27 +40,15 @@ else:
     NAME           = os.environ.get("NAME", "friend")
 
 
-# ── Greeting helpers ──────────────────────────────────────────────────────────
-def hi() -> str:
-    """Returns 'Hey Leon' — used as a natural greeting prefix."""
-    return "Hey " + NAME
-
-def morning_greeting() -> str:
-    return "Good morning, " + NAME + "! 🌅"
-
-def evening_greeting() -> str:
-    return "Good evening, " + NAME + "! 🌙"
-
-
 # ── /start ────────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        hi() + "! I'm your personal productivity assistant.\n\n"
+        "Hi " + NAME + "! I'm your personal productivity assistant.\n\n"
         "I'll help you plan your day, track your habits, and celebrate your wins!\n\n"
-        "*Task Commands:*\n"
+        "TASK COMMANDS\n"
         "/plan          - Set today's tasks\n"
         "/review        - Evening task check-in\n\n"
-        "*Habit Commands:*\n"
+        "HABIT COMMANDS\n"
         "/addhabit      - Add a recurring habit\n"
         "/setreward     - Set a monthly reward for a habit\n"
         "/removehabit   - Remove a habit\n"
@@ -71,44 +57,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/weeklyhabits  - Weekly habit summary\n"
         "/monthlyhabits - Monthly progress + rewards\n\n"
         "Your Chat ID: " + str(update.effective_chat.id),
-        parse_mode="Markdown",
     )
 
 
 # ── /plan ─────────────────────────────────────────────────────────────────────
 async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        morning_greeting() + " What do you want to achieve today?\n\n"
-        "Send me your tasks, one per line.\n"
-        "You can add a time - 9am, 2:30pm, or 14:00 all work:\n\n"
-        "Example:\n"
-        "9am - Team standup\n"
-        "11:30am - Review proposal\n"
-        "1pm - Lunch\n"
-        "Go for a 30min walk\n\n"
-        "Tasks without a time will be added as all-day reminders.",
-        parse_mode="Markdown",
+        "Good morning, " + NAME + "! What do you want to achieve?\n\n"
+        "Send your tasks one per line. You can include a time and/or date:\n\n"
+        "9am - Team standup              (today, timed)\n"
+        "3pm tomorrow - Dentist          (tomorrow, timed)\n"
+        "Friday 2pm - Team dinner        (next Friday, timed)\n"
+        "2026-05-15 10am - Flight        (specific date, timed)\n"
+        "Go for a walk                   (today, all-day)\n"
+        "Buy groceries tomorrow          (tomorrow, all-day)\n\n"
+        "Tasks with no date default to TODAY."
     )
     context.user_data["waiting_for_tasks"] = True
 
 
-# ── Receive task list ─────────────────────────────────────────────────────────
+# ── Receive tasks ─────────────────────────────────────────────────────────────
 async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("waiting_for_tasks"):
         return
 
-    text  = update.message.text
-    lines = [t.strip() for t in text.strip().split("\n") if t.strip()]
-
+    lines = [l.strip() for l in update.message.text.strip().split("\n") if l.strip()]
     if not lines:
-        await update.message.reply_text(
-            hi() + ", I didn't catch any tasks. Please try again!"
-        )
+        await update.message.reply_text("I didn't catch any tasks, " + NAME + ". Please try again!")
         return
 
     context.user_data["waiting_for_tasks"] = False
 
-    today = datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d")
+    # Save tasks grouped by date
+    tz    = pytz.timezone(TIMEZONE)
+    today = datetime.now(tz).strftime("%Y-%m-%d")
     tasks = [{"title": t, "done": False} for t in lines]
     save_tasks(today, tasks)
 
@@ -116,15 +98,18 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         results   = create_tasks(lines, TIMEZONE)
         task_list = ""
-        for title, time_str, _ in results:
+        for title, date_str, time_str, _ in results:
+            tz_obj   = pytz.timezone(TIMEZONE)
+            today_str = datetime.now(tz_obj).strftime("%Y-%m-%d")
+            date_label = "today" if date_str == today_str else date_str
             if time_str:
-                task_list += "- " + time_str + " - " + title + "\n"
+                task_list += "- " + time_str + " " + date_label + " — " + title + "\n"
             else:
-                task_list += "- " + title + " (all day)\n"
+                task_list += "- " + title + " (" + date_label + ", all day)\n"
+
         await update.message.reply_text(
-            "You're all set, " + NAME + "! " + str(len(lines)) + " tasks added:\n\n" +
-            task_list + "\nI'll check in with you tonight. Crush it today! 💪",
-            parse_mode="Markdown",
+            "You're all set, " + NAME + "! " + str(len(results)) + " tasks added:\n\n" +
+            task_list + "\nCrush it today! 💪"
         )
     except Exception as e:
         logger.error("Calendar sync error: " + str(e))
@@ -144,28 +129,23 @@ async def send_evening_review(app, chat_id: int):
     tasks = load_tasks(today)
 
     if not tasks:
-        await app.bot.send_message(
-            chat_id, evening_greeting() + " No tasks found for today."
-        )
+        await app.bot.send_message(chat_id, "Good evening, " + NAME + "! No tasks found for today.")
         return
 
     keyboard = []
     for i, task in enumerate(tasks):
         icon = "✅" if task["done"] else "⬜"
-        keyboard.append([InlineKeyboardButton(
-            icon + " " + task["title"], callback_data="toggle_" + str(i)
-        )])
+        keyboard.append([InlineKeyboardButton(icon + " " + task["title"], callback_data="toggle_" + str(i))])
     keyboard.append([InlineKeyboardButton("Save & Close", callback_data="save_done")])
 
     done_count = sum(1 for t in tasks if t["done"])
     await app.bot.send_message(
         chat_id,
-        evening_greeting() + " Time to wrap up the day!\n\n"
-        "*Task Check-In - " + today + "*\n"
+        "Good evening, " + NAME + "! Time to wrap up the day.\n\n"
+        "Task Check-In - " + today + "\n"
         "Completed " + str(done_count) + "/" + str(len(tasks)) + " tasks.\n"
         "Tap each task to mark it done:",
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
     )
 
 
@@ -173,60 +153,48 @@ async def send_evening_review(app, chat_id: int):
 async def cmd_addhabit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
-            hi() + ", use this format:\n\n"
-            "/addhabit <habit name>\n\n"
+            "Usage: /addhabit <habit name>\n\n"
             "Examples:\n"
             "/addhabit Exercise\n"
-            "/addhabit Read 20 pages\n"
-            "/addhabit No sugar\n\n"
+            "/addhabit Read 20 pages\n\n"
             "Then use /setreward to add a monthly reward!"
         )
         return
     name = " ".join(context.args)
     if add_habit(name):
         await update.message.reply_text(
-            "Love it, " + NAME + "! Habit added: *" + name + "*\n\n"
+            "Love it, " + NAME + "! Habit added: " + name + "\n\n"
             "Want to set a reward for completing it all month?\n"
-            "Use: /setreward " + name + " | your reward here\n\n"
-            "Example: /setreward " + name + " | Treat yourself to a nice dinner!",
-            parse_mode="Markdown",
+            "Use: /setreward " + name + " | your reward here"
         )
     else:
-        await update.message.reply_text(
-            hi() + ", you already have a habit called '" + name + "'!"
-        )
+        await update.message.reply_text("You already have a habit called '" + name + "', " + NAME + "!")
 
 
 # ── /setreward ────────────────────────────────────────────────────────────────
 async def cmd_setreward(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or "|" not in " ".join(context.args):
         await update.message.reply_text(
-            hi() + ", use this format:\n\n"
-            "/setreward <habit name> | <your reward>\n\n"
+            "Usage: /setreward <habit name> | <your reward>\n\n"
             "Examples:\n"
             "/setreward Exercise | Buy new running shoes\n"
-            "/setreward Read 20 pages | Buy that book you've been eyeing\n"
-            "/setreward No sugar | Fancy dessert night!"
+            "/setreward Read 20 pages | Buy that book you've been eyeing"
         )
         return
-
-    full  = " ".join(context.args)
-    parts = full.split("|", 1)
+    full   = " ".join(context.args)
+    parts  = full.split("|", 1)
     name   = parts[0].strip()
     reward = parts[1].strip()
-
     if set_reward(name, reward):
         await update.message.reply_text(
             "Perfect motivation, " + NAME + "!\n\n"
-            "Habit: *" + name + "*\n"
-            "Reward: *" + reward + "*\n\n"
-            "Complete this habit every day this month and you'll earn it! 🎁",
-            parse_mode="Markdown",
+            "Habit: " + name + "\n"
+            "Reward: " + reward + "\n\n"
+            "Complete this habit every day this month and you'll earn it! 🎁"
         )
     else:
         await update.message.reply_text(
-            hi() + ", I couldn't find a habit called '" + name + "'.\n"
-            "Use /habits to see your habits."
+            "I couldn't find a habit called '" + name + "'. Use /habits to see your habits."
         )
 
 
@@ -237,45 +205,37 @@ async def cmd_removehabit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     name = " ".join(context.args)
     if remove_habit(name):
-        await update.message.reply_text(
-            "Done, " + NAME + ". Habit '" + name + "' has been removed."
-        )
+        await update.message.reply_text("Done, " + NAME + ". Habit '" + name + "' removed.")
     else:
-        await update.message.reply_text(
-            hi() + ", I couldn't find a habit called '" + name + "'."
-        )
+        await update.message.reply_text("I couldn't find a habit called '" + name + "'.")
 
 
 # ── /habits ───────────────────────────────────────────────────────────────────
 async def cmd_habits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     habits = list_habits()
     if not habits:
-        await update.message.reply_text(
-            hi() + ", you have no habits set up yet!\n"
-            "Start with: /addhabit <name>"
-        )
+        await update.message.reply_text("No habits set up yet, " + NAME + "! Use /addhabit <name>")
         return
 
     tz    = pytz.timezone(TIMEZONE)
     today = datetime.now(tz).strftime("%Y-%m-%d")
     lines = []
     for h in habits:
-        s     = get_streak(h["name"], TIMEZONE)
-        emoji = streak_emoji(s["current"])
-        done  = h.get("log", {}).get(today)
-        check = "✅" if done else ("⬜" if done is False else "❓")
+        s          = get_streak(h["name"], TIMEZONE)
+        emoji      = streak_emoji(s["current"])
+        done       = h.get("log", {}).get(today)
+        check      = "✅" if done else ("⬜" if done is False else "❓")
         reward_tag = " 🎁" if h.get("reward") else ""
         lines.append(
-            check + " *" + h["name"] + "*" + reward_tag + " - " +
+            check + " " + h["name"] + reward_tag + " - " +
             emoji + " " + str(s["current"]) + "d streak (best: " + str(s["best"]) + "d)"
         )
 
     await update.message.reply_text(
         "Here are your habits, " + NAME + ":\n\n" +
         "\n".join(lines) + "\n\n"
-        "_🎁 = has a monthly reward set_\n"
-        "_Use /habitcheck to log today_",
-        parse_mode="Markdown",
+        "🎁 = has a monthly reward set\n"
+        "Use /habitcheck to log today"
     )
 
 
@@ -289,10 +249,7 @@ async def cmd_habitcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_habit_checkin(app, chat_id: int, date: str):
     habits = get_habits_for_date(date)
     if not habits:
-        await app.bot.send_message(
-            chat_id,
-            hi() + ", no habits set up yet! Use /addhabit <name>"
-        )
+        await app.bot.send_message(chat_id, "No habits set up yet! Use /addhabit <name>")
         return
 
     keyboard = []
@@ -306,11 +263,10 @@ async def send_habit_checkin(app, chat_id: int, date: str):
     done_count = sum(1 for h in habits if h["done"] is True)
     await app.bot.send_message(
         chat_id,
-        "*Habit Check-In - " + date + "*\n\n" +
+        "Habit Check-In - " + date + "\n\n"
         "How did you do today, " + NAME + "?\n" +
         str(done_count) + "/" + str(len(habits)) + " habits completed",
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
     )
 
 
@@ -325,14 +281,11 @@ async def send_weekly_habit_summary(app, chat_id: int):
     dates   = summary["dates"]
 
     if not habits:
-        await app.bot.send_message(
-            chat_id,
-            hi() + ", no habits tracked yet! Use /addhabit to start."
-        )
+        await app.bot.send_message(chat_id, "No habits tracked yet! Use /addhabit to start.")
         return
 
     day_labels = [datetime.strptime(d, "%Y-%m-%d").strftime("%a") for d in dates]
-    rows = ["*" + NAME + "'s Weekly Habit Summary*\n"]
+    rows = [NAME + "'s Weekly Habit Summary\n"]
 
     for name, data in habits.items():
         dots = []
@@ -342,14 +295,13 @@ async def send_weekly_habit_summary(app, chat_id: int):
             else:               dots.append("⚪")
         rate   = data["rate"]
         streak = data["streak"]
-        reward = data.get("reward")
-        rows.append(streak_emoji(streak) + " *" + name + "*" + (" 🎁" if reward else ""))
+        rows.append(streak_emoji(streak) + " " + name + (" 🎁" if data.get("reward") else ""))
         rows.append(" ".join(dots) + "  " + str(int(rate)) + "% - " + str(streak) + "d streak")
         rows.append("")
 
     rows.append("  ".join(day_labels))
     rows.append("\n🟢 Done  🔴 Missed  ⚪ Not logged")
-    await app.bot.send_message(chat_id, "\n".join(rows), parse_mode="Markdown")
+    await app.bot.send_message(chat_id, "\n".join(rows))
 
 
 # ── /monthlyhabits ────────────────────────────────────────────────────────────
@@ -360,16 +312,12 @@ async def cmd_monthlyhabits(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_monthly_habit_summary(app, chat_id: int):
     habits = list_habits()
     if not habits:
-        await app.bot.send_message(
-            chat_id, hi() + ", no habits set up yet! Use /addhabit to start."
-        )
+        await app.bot.send_message(chat_id, "No habits set up yet! Use /addhabit to start.")
         return
 
-    tz  = pytz.timezone(TIMEZONE)
-    now = datetime.now(tz)
-    month_name = now.strftime("%B %Y")
-
-    rows = ["*" + NAME + "'s Monthly Progress - " + month_name + "*\n"]
+    tz         = pytz.timezone(TIMEZONE)
+    month_name = datetime.now(tz).strftime("%B %Y")
+    rows       = [NAME + "'s Monthly Progress - " + month_name + "\n"]
 
     for h in habits:
         progress = get_monthly_progress(h["name"], timezone=TIMEZONE)
@@ -380,41 +328,37 @@ async def send_monthly_habit_summary(app, chat_id: int):
         reward   = progress.get("reward")
         streak   = get_streak(h["name"], TIMEZONE)["current"]
 
-        # Progress bar (10 blocks)
         filled = int(rate / 10)
         bar    = "█" * filled + "░" * (10 - filled)
 
-        rows.append(streak_emoji(streak) + " *" + h["name"] + "*")
+        rows.append(streak_emoji(streak) + " " + h["name"])
         rows.append("[" + bar + "] " + str(done) + "/" + str(elapsed) + " days (" + str(int(rate)) + "%)")
 
         if reward:
             days_left = total - done
             if progress["reward_earned"]:
-                rows.append("🎁 Reward earned: *" + reward + "* - Go enjoy it, " + NAME + "!")
+                rows.append("🎁 Reward earned: " + reward + " - Go enjoy it, " + NAME + "!")
             else:
                 rows.append("🎁 Reward: " + reward)
                 rows.append("Keep going! " + str(days_left) + " more days to earn it.")
         rows.append("")
 
-    await app.bot.send_message(chat_id, "\n".join(rows), parse_mode="Markdown")
+    await app.bot.send_message(chat_id, "\n".join(rows))
 
 
 async def send_month_end_rewards(app, chat_id: int):
-    """Called at end of month to announce earned rewards."""
     earned = check_month_complete(TIMEZONE)
     if not earned:
         return
-
-    rows = ["🎉 *Congratulations, " + NAME + "!*\n\nYou completed a full month of habits!\n"]
+    rows = ["Congratulations, " + NAME + "!\n\nYou completed a full month of habits!\n"]
     for p in earned:
-        rows.append("🏆 *" + p["name"] + "*")
-        rows.append("You earned your reward: *" + p["reward"] + "*")
+        rows.append("🏆 " + p["name"])
+        rows.append("You earned your reward: " + p["reward"])
         rows.append("Go enjoy it - you deserve it!\n")
+    await app.bot.send_message(chat_id, "\n".join(rows))
 
-    await app.bot.send_message(chat_id, "\n".join(rows), parse_mode="Markdown")
 
-
-# ── Inline button callbacks ───────────────────────────────────────────────────
+# ── Button callbacks ──────────────────────────────────────────────────────────
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -422,7 +366,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz    = pytz.timezone(TIMEZONE)
     today = datetime.now(tz).strftime("%Y-%m-%d")
 
-    # ── Task toggle ───────────────────────────────────────────────────────────
     if query.data.startswith("toggle_"):
         tasks = load_tasks(today)
         idx   = int(query.data.split("_")[1])
@@ -432,21 +375,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = []
         for i, task in enumerate(tasks):
             icon = "✅" if task["done"] else "⬜"
-            keyboard.append([InlineKeyboardButton(
-                icon + " " + task["title"], callback_data="toggle_" + str(i)
-            )])
+            keyboard.append([InlineKeyboardButton(icon + " " + task["title"], callback_data="toggle_" + str(i))])
         keyboard.append([InlineKeyboardButton("Save & Close", callback_data="save_done")])
 
         done_count = sum(1 for t in tasks if t["done"])
         await query.edit_message_text(
-            "*Task Check-In - " + today + "*\n\n" +
+            "Task Check-In - " + today + "\n"
             "Completed " + str(done_count) + "/" + str(len(tasks)) + " tasks, " + NAME + ".\n"
             "Tap each task to mark it done:",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
         )
 
-    # ── Task save ─────────────────────────────────────────────────────────────
     elif query.data == "save_done":
         tasks       = load_tasks(today)
         done_count  = sum(1 for t in tasks if t["done"])
@@ -456,16 +395,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if done_count == total_count:
             msg = "Amazing work, " + NAME + "! You completed ALL " + str(total_count) + " tasks today! 🎉"
         else:
-            msg = (
-                "*Day Summary - " + today + "*\n\n" +
-                "Completed: " + str(done_count) + "/" + str(total_count) + " tasks"
-            )
+            msg = "Day Summary - " + today + "\n\nCompleted: " + str(done_count) + "/" + str(total_count) + " tasks"
             if undone:
                 msg += "\n\nNot completed:\n" + "\n".join("- " + t for t in undone)
             msg += "\n\nGood effort today, " + NAME + ". Tomorrow is a new chance!"
-        await query.edit_message_text(msg, parse_mode="Markdown")
+        await query.edit_message_text(msg)
 
-    # ── Habit toggle ──────────────────────────────────────────────────────────
     elif query.data.startswith("habit_"):
         parts  = query.data.split("_")
         idx    = int(parts[1])
@@ -485,14 +420,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         done_count = sum(1 for h in habits if h["done"] is True)
         await query.edit_message_text(
-            "*Habit Check-In - " + date + "*\n\n" +
+            "Habit Check-In - " + date + "\n\n"
             "How did you do today, " + NAME + "?\n" +
             str(done_count) + "/" + str(len(habits)) + " habits completed",
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
         )
 
-    # ── Habit save ────────────────────────────────────────────────────────────
     elif query.data.startswith("habits_save_"):
         date   = query.data.replace("habits_save_", "")
         habits = get_habits_for_date(date)
@@ -503,39 +436,36 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reward_note = ""
             if h.get("reward") and h["done"] is True:
                 p = get_monthly_progress(h["name"], timezone=TIMEZONE)
-                days_left = p["days_in_month"] - p["days_done"]
-                if p["reward_earned"]:
+                if p.get("reward_earned"):
                     reward_note = " - Reward earned! 🎁"
                 else:
+                    days_left   = p["days_in_month"] - p["days_done"]
                     reward_note = " - " + str(days_left) + " days left for reward!"
-            lines.append(
-                icon + " " + h["name"] + " - " +
-                streak_emoji(s["current"]) + " " + str(s["current"]) + "d streak" + reward_note
-            )
+            lines.append(icon + " " + h["name"] + " - " + streak_emoji(s["current"]) + " " + str(s["current"]) + "d streak" + reward_note)
 
         all_done = all(h["done"] is True for h in habits)
-        msg = "*Habits saved - " + date + "*\n\n" + "\n".join(lines)
+        msg = "Habits saved - " + date + "\n\n" + "\n".join(lines)
         if all_done:
             msg += "\n\nPerfect habit day, " + NAME + "! Keep that streak alive! 🔥"
         else:
             msg += "\n\nEvery day counts, " + NAME + ". See you tomorrow!"
-        await query.edit_message_text(msg, parse_mode="Markdown")
+        await query.edit_message_text(msg)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("start",          start))
-    app.add_handler(CommandHandler("plan",           plan))
-    app.add_handler(CommandHandler("review",         review))
-    app.add_handler(CommandHandler("addhabit",       cmd_addhabit))
-    app.add_handler(CommandHandler("setreward",      cmd_setreward))
-    app.add_handler(CommandHandler("removehabit",    cmd_removehabit))
-    app.add_handler(CommandHandler("habits",         cmd_habits))
-    app.add_handler(CommandHandler("habitcheck",     cmd_habitcheck))
-    app.add_handler(CommandHandler("weeklyhabits",   cmd_weeklyhabits))
-    app.add_handler(CommandHandler("monthlyhabits",  cmd_monthlyhabits))
+    app.add_handler(CommandHandler("start",         start))
+    app.add_handler(CommandHandler("plan",          plan))
+    app.add_handler(CommandHandler("review",        review))
+    app.add_handler(CommandHandler("addhabit",      cmd_addhabit))
+    app.add_handler(CommandHandler("setreward",     cmd_setreward))
+    app.add_handler(CommandHandler("removehabit",   cmd_removehabit))
+    app.add_handler(CommandHandler("habits",        cmd_habits))
+    app.add_handler(CommandHandler("habitcheck",    cmd_habitcheck))
+    app.add_handler(CommandHandler("weeklyhabits",  cmd_weeklyhabits))
+    app.add_handler(CommandHandler("monthlyhabits", cmd_monthlyhabits))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_tasks))
 

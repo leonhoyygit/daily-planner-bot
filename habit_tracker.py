@@ -1,16 +1,25 @@
 """
-habit_tracker.py — Habit management, streak calculation, and weekly summary.
+habit_tracker.py — Habit management, streaks, weekly/monthly summaries and rewards.
 """
 
 import json
 import os
+import calendar
 from datetime import datetime, timedelta
 import pytz
 
 HABITS_FILE = "habits.json"
 
+__all__ = [
+    "add_habit", "set_reward", "remove_habit", "list_habits",
+    "mark_habit", "get_habits_for_date",
+    "get_streak", "streak_emoji",
+    "get_weekly_summary", "get_monthly_progress",
+    "check_month_complete",
+]
 
-# ── Storage helpers ───────────────────────────────────────────────────────────
+
+# ── Storage ───────────────────────────────────────────────────────────────────
 
 def _load() -> dict:
     if not os.path.exists(HABITS_FILE):
@@ -24,25 +33,34 @@ def _save(data: dict):
         json.dump(data, f, indent=2)
 
 
-# ── Habit CRUD ────────────────────────────────────────────────────────────────
+# ── CRUD ──────────────────────────────────────────────────────────────────────
 
-def add_habit(name: str) -> bool:
-    """Add a new habit. Returns False if it already exists."""
+def add_habit(name: str, reward: str = None) -> bool:
     data = _load()
     key  = name.strip().lower()
     if key in data:
         return False
     data[key] = {
         "name":    name.strip(),
+        "reward":  reward.strip() if reward else None,
         "created": datetime.now().strftime("%Y-%m-%d"),
-        "log":     {},          # {"YYYY-MM-DD": true/false}
+        "log":     {},
     }
     _save(data)
     return True
 
 
+def set_reward(name: str, reward: str) -> bool:
+    data = _load()
+    key  = name.strip().lower()
+    if key not in data:
+        return False
+    data[key]["reward"] = reward.strip()
+    _save(data)
+    return True
+
+
 def remove_habit(name: str) -> bool:
-    """Remove a habit by name. Returns False if not found."""
     data = _load()
     key  = name.strip().lower()
     if key not in data:
@@ -53,7 +71,6 @@ def remove_habit(name: str) -> bool:
 
 
 def list_habits() -> list:
-    """Return list of habit dicts sorted by name."""
     data = _load()
     return sorted(data.values(), key=lambda h: h["name"].lower())
 
@@ -61,7 +78,6 @@ def list_habits() -> list:
 # ── Daily logging ─────────────────────────────────────────────────────────────
 
 def mark_habit(name: str, done: bool, date: str = None):
-    """Mark a habit done/undone for a given date (default today)."""
     data = _load()
     key  = name.strip().lower()
     if key not in data:
@@ -74,39 +90,36 @@ def mark_habit(name: str, done: bool, date: str = None):
 
 
 def get_habits_for_date(date: str) -> list:
-    """Return list of (habit_name, done_bool) for a given date."""
-    data   = _load()
+    data = _load()
     result = []
     for habit in data.values():
-        done = habit["log"].get(date, None)  # None = not yet logged
-        result.append({"name": habit["name"], "done": done, "date": date})
+        done = habit["log"].get(date, None)
+        result.append({
+            "name":   habit["name"],
+            "done":   done,
+            "date":   date,
+            "reward": habit.get("reward"),
+        })
     return sorted(result, key=lambda h: h["name"].lower())
 
 
-# ── Streak calculation ────────────────────────────────────────────────────────
+# ── Streaks ───────────────────────────────────────────────────────────────────
 
 def get_streak(name: str, timezone: str = "Asia/Tokyo") -> dict:
-    """
-    Calculate current streak and best streak for a habit.
-    Streak = consecutive days ending today (or yesterday if today not yet logged).
-    """
     data = _load()
     key  = name.strip().lower()
     if key not in data:
         return {"current": 0, "best": 0}
 
-    log      = data[key]["log"]
-    tz       = pytz.timezone(timezone)
-    today    = datetime.now(tz).strftime("%Y-%m-%d")
-    
-    # Walk backwards from today
-    current_streak = 0
-    check_date     = datetime.now(tz)
+    log        = data[key]["log"]
+    tz         = pytz.timezone(timezone)
+    today      = datetime.now(tz).strftime("%Y-%m-%d")
+    check_date = datetime.now(tz)
 
-    # If today not yet logged, start check from yesterday
     if today not in log:
         check_date = check_date - timedelta(days=1)
 
+    current_streak = 0
     while True:
         date_str = check_date.strftime("%Y-%m-%d")
         if log.get(date_str) is True:
@@ -115,19 +128,17 @@ def get_streak(name: str, timezone: str = "Asia/Tokyo") -> dict:
         else:
             break
 
-    # Best streak ever
-    best_streak   = 0
-    run           = 0
-    sorted_dates  = sorted(log.keys())
+    best_streak  = 0
+    run          = 0
+    sorted_dates = sorted(log.keys())
     for i, d in enumerate(sorted_dates):
         if log[d] is True:
             run += 1
-            # Check if consecutive with previous date
             if i > 0:
                 prev = datetime.strptime(sorted_dates[i - 1], "%Y-%m-%d")
                 curr = datetime.strptime(d, "%Y-%m-%d")
                 if (curr - prev).days != 1:
-                    run = 1  # gap — restart
+                    run = 1
             best_streak = max(best_streak, run)
         else:
             run = 0
@@ -143,30 +154,87 @@ def streak_emoji(streak: int) -> str:
     return "🌱"
 
 
+# ── Monthly progress & rewards ────────────────────────────────────────────────
+
+def get_monthly_progress(name: str, year: int = None, month: int = None, timezone: str = "Asia/Tokyo") -> dict:
+    data = _load()
+    key  = name.strip().lower()
+    if key not in data:
+        return {}
+
+    tz = pytz.timezone(timezone)
+    if year is None or month is None:
+        now   = datetime.now(tz)
+        year  = now.year
+        month = now.month
+
+    days_in_month = calendar.monthrange(year, month)[1]
+    log           = data[key]["log"]
+    reward        = data[key].get("reward")
+
+    days_done = 0
+    for day in range(1, days_in_month + 1):
+        date_str = "%04d-%02d-%02d" % (year, month, day)
+        if log.get(date_str) is True:
+            days_done += 1
+
+    tz_now        = datetime.now(tz)
+    days_elapsed  = min(tz_now.day, days_in_month) if (tz_now.year == year and tz_now.month == month) else days_in_month
+    completion_rate = (days_done / days_elapsed * 100) if days_elapsed > 0 else 0
+    reward_earned = (days_done >= days_in_month)
+
+    return {
+        "name":            name,
+        "year":            year,
+        "month":           month,
+        "days_done":       days_done,
+        "days_elapsed":    days_elapsed,
+        "days_in_month":   days_in_month,
+        "completion_rate": completion_rate,
+        "reward":          reward,
+        "reward_earned":   reward_earned,
+    }
+
+
+def check_month_complete(timezone: str = "Asia/Tokyo") -> list:
+    tz  = pytz.timezone(timezone)
+    now = datetime.now(tz)
+    if now.day == 1:
+        first_of_month = now.replace(day=1)
+        last_month     = first_of_month - timedelta(days=1)
+        year, month    = last_month.year, last_month.month
+    else:
+        year, month = now.year, now.month
+
+    earned = []
+    for habit in list_habits():
+        progress = get_monthly_progress(habit["name"], year, month, timezone)
+        if progress.get("reward_earned") and progress.get("reward"):
+            earned.append(progress)
+    return earned
+
+
 # ── Weekly summary ────────────────────────────────────────────────────────────
 
 def get_weekly_summary(timezone: str = "Asia/Tokyo") -> dict:
-    """
-    Return a summary of the past 7 days for all habits.
-    Returns dict: {habit_name: {"days": [...bool/None x7], "rate": float, "streak": int}}
-    """
-    data    = _load()
-    tz      = pytz.timezone(timezone)
-    today   = datetime.now(tz)
-    dates   = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+    data  = _load()
+    tz    = pytz.timezone(timezone)
+    today = datetime.now(tz)
+    dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
 
     summary = {}
     for habit in data.values():
-        log  = habit["log"]
-        days = [log.get(d) for d in dates]          # True/False/None per day
-        done = [d for d in days if d is True]
-        rate = len(done) / 7 * 100
+        log    = habit["log"]
+        days   = [log.get(d) for d in dates]
+        done   = [d for d in days if d is True]
+        rate   = len(done) / 7 * 100
         streak = get_streak(habit["name"], timezone)["current"]
         summary[habit["name"]] = {
             "days":   days,
             "dates":  dates,
             "rate":   rate,
             "streak": streak,
+            "reward": habit.get("reward"),
         }
 
     return {"habits": summary, "dates": dates}
