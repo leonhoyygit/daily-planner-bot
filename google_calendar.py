@@ -79,15 +79,15 @@ def resolve_timezone(tz_input: str) -> str:
         return None
 
 
-# ── Time range pattern — matches "9am-11am", "9:00-10:30", "14:00-16:00" ─────
+# ── Time range pattern — matches "9am-11am", "9:00-10:30", "14:00-16:00", "14-16" ─────
 TIME_RANGE_PATTERN = re.compile(
-    r"(\d{1,4}(?::\d{2})?\s*(?:am|pm))\s*[-–]\s*(\d{1,4}(?::\d{2})?\s*(?:am|pm))",
+    r"(\d{1,4}(?::\d{2})?\s*(?:am|pm)?)\s*[-–]\s*(\d{1,4}(?::\d{2})?\s*(?:am|pm)?)",
     re.IGNORECASE,
 )
 
 # Single time pattern
 TIME_PATTERN = re.compile(
-    r"(\d{1,4}(?::\d{2})?\s*(?:am|pm)|\d{2}:\d{2})",
+    r"(\d{1,4}(?::\d{2})?\s*(?:am|pm)|\d{2}:\d{2}|\b\d{1,2}\b(?!\s*[-–]))",
     re.IGNORECASE,
 )
 
@@ -95,7 +95,7 @@ TIME_PATTERN = re.compile(
 def parse_time_str(time_str: str, base_date: datetime, tz, fallback_period: str = None) -> datetime:
     """
     Convert time strings into localized datetime.
-    Supports: 9am, 9:30am, 930am, 1030am, 14:00, 9, etc.
+    Supports: 9am, 9:30am, 10:30, 14:00, 14, 9, etc.
     """
     time_str = time_str.strip().lower().replace(" ", "")
     naive    = base_date.replace(tzinfo=None)
@@ -112,7 +112,7 @@ def parse_time_str(time_str: str, base_date: datetime, tz, fallback_period: str 
             # 1030 -> 10:30
             time_str = digits[:2] + ":" + digits[2:] + period
 
-    for fmt in ["%I:%M%p", "%I%p", "%H:%M"]:
+    for fmt in ["%I:%M%p", "%I%p", "%H:%M", "%H"]:
         try:
             t = datetime.strptime(time_str, fmt)
             return tz.localize(naive.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0))
@@ -305,7 +305,7 @@ def create_tasks(task_lines: list, timezone: str = "Asia/Tokyo") -> list:
             duration_hrs = (end_dt - start_dt).seconds / 3600
             time_label   = start_dt.strftime("%I:%M%p").lstrip("0").lower() + "-" + end_dt.strftime("%I:%M%p").lstrip("0").lower()
             event = {
-                "summary":     "📝 " + title,
+                "summary":     "🤖 " + title,
                 "start":       {"dateTime": start_dt.isoformat(), "timeZone": timezone},
                 "end":         {"dateTime": end_dt.isoformat(),   "timeZone": timezone},
                 "description": "Added by Daily Planner Bot (" + str(duration_hrs) + "h)",
@@ -323,7 +323,7 @@ def create_tasks(task_lines: list, timezone: str = "Asia/Tokyo") -> list:
             end_dt     = start_dt + timedelta(hours=1)
             time_label = start_dt.strftime("%I:%M%p").lstrip("0").lower()
             event = {
-                "summary":     "📝 " + title,
+                "summary":     "🤖 " + title,
                 "start":       {"dateTime": start_dt.isoformat(), "timeZone": timezone},
                 "end":         {"dateTime": end_dt.isoformat(),   "timeZone": timezone},
                 "description": "Added by Daily Planner Bot (1h)",
@@ -338,7 +338,7 @@ def create_tasks(task_lines: list, timezone: str = "Asia/Tokyo") -> list:
         if not title:
             title = raw_line.strip()
         event = {
-            "summary":     "📝 " + title,
+            "summary":     "🤖 " + title,
             "start":       {"date": date_str},
             "end":         {"date": date_str},
             "description": "Added by Daily Planner Bot",
@@ -363,9 +363,14 @@ def get_todays_tasks(timezone: str = "Asia/Tokyo") -> list:
     return result.get("items", [])
 
 
-def mark_task_complete(event_id: str):
+def mark_task_complete(event_id: str, done: bool = True):
     service = get_calendar_service()
     event   = service.events().get(calendarId="primary", eventId=event_id).execute()
-    if not event["summary"].startswith("✅"):
-        event["summary"] = "✅ " + event["summary"].replace("📝 ", "")
-        service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
+    summary = event["summary"]
+    
+    if done and not summary.startswith("✅"):
+        event["summary"] = "✅ " + summary.replace("🤖 ", "").replace("📝 ", "")
+    elif not done and summary.startswith("✅"):
+        event["summary"] = "🤖 " + summary.replace("✅ ", "")
+    
+    service.events().update(calendarId="primary", eventId=event_id, body=event).execute()

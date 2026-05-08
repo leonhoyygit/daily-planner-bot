@@ -156,14 +156,11 @@ async def plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Receive tasks ─────────────────────────────────────────────────────────────
 async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("waiting_for_tasks"):
-        return
-
     lines = [l.strip() for l in update.message.text.strip().split("\n") if l.strip()]
     if not lines:
-        await update.message.reply_text("I didn't catch any tasks, " + NAME + ". Please try again!")
         return
 
+    # Clear the manual /plan flag if it was set
     context.user_data["waiting_for_tasks"] = False
 
     tz    = pytz.timezone(get_timezone())
@@ -183,8 +180,8 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 task_list += "- " + title + " (" + date_label + ", all day)\n"
 
         await update.message.reply_text(
-            "You're all set, " + NAME + "! " + str(len(results)) + " tasks added:\n\n" +
-            task_list + "\nCrush it today! 💪"
+            "Got it, " + NAME + "! " + str(len(results)) + " tasks added:\n\n" +
+            task_list + "\nCrush it! 💪"
         )
     except Exception as e:
         logger.error("Calendar sync error: " + str(e))
@@ -201,25 +198,35 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_evening_review(app, chat_id: int):
     tz    = pytz.timezone(get_timezone())
     today = datetime.now(tz).strftime("%Y-%m-%d")
-    tasks = load_tasks(today)
-
-    if not tasks:
-        await app.bot.send_message(chat_id, "Good evening, " + NAME + "! No tasks found for today.")
+    
+    try:
+        events = get_todays_tasks(get_timezone())
+    except Exception as e:
+        logger.error("Failed to fetch calendar for review: " + str(e))
+        await app.bot.send_message(chat_id, "Couldn't reach Google Calendar for your review, " + NAME + ".")
         return
 
+    if not events:
+        await app.bot.send_message(chat_id, "Good evening, " + NAME + "! No calendar events found for today.")
+        return
+
+    # Store events in user_data for callback access
+    app.user_data[chat_id]["review_events"] = events
+
     keyboard = []
-    for i, task in enumerate(tasks):
-        icon = "✅" if task["done"] else "⬜"
-        keyboard.append([InlineKeyboardButton(icon + " " + task["title"], callback_data="toggle_" + str(i))])
+    for i, event in enumerate(events):
+        summary = event.get("summary", "Untitled")
+        icon    = "✅" if summary.startswith("✅") else "⬜"
+        keyboard.append([InlineKeyboardButton(icon + " " + summary, callback_data="toggle_" + str(i))])
     keyboard.append([InlineKeyboardButton("Save & Close", callback_data="save_done")])
 
-    done_count = sum(1 for t in tasks if t["done"])
+    done_count = sum(1 for e in events if e.get("summary", "").startswith("✅"))
     await app.bot.send_message(
         chat_id,
         "Good evening, " + NAME + "! Time to wrap up.\n\n"
-        "Task Check-In - " + today + "\n"
-        "Completed " + str(done_count) + "/" + str(len(tasks)) + " tasks.\n"
-        "Tap each task to mark it done:",
+        "Calendar Check-In - " + today + "\n"
+        "Completed " + str(done_count) + "/" + str(len(events)) + " activities.\n"
+        "Tap each to mark it done:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -419,38 +426,63 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(tz).strftime("%Y-%m-%d")
 
     if query.data.startswith("toggle_"):
-        tasks = load_tasks(today)
-        idx   = int(query.data.split("_")[1])
-        tasks[idx]["done"] = not tasks[idx]["done"]
-        save_tasks(today, tasks)
+        idx    = int(query.data.split("_")[1])
+        events = context.user_data.get("review_events", [])
+        if not events or idx >= len(events):
+            await query.edit_message_text("Session expired. Please use /review again.")
+            return
 
-        keyboard   = []
-        for i, task in enumerate(tasks):
-            icon = "✅" if task["done"] else "⬜"
-            keyboard.append([InlineKeyboardButton(icon + " " + task["title"], callback_data="toggle_" + str(i))])
+        event   = events[idx]
+        summary = event.get("summary", "")
+        is_done = summary.startswith("✅")
+        
+        # Toggle on Google Calendar
+        try:
+            mark_task_complete(event["id"], not is_done)
+            # Update local list
+            if not is_done:
+                event["summary"] = "✅ " + summary.replace("🤖 ", "").replace("📝 ", "")
+            else:
+                event["summary"] = "🤖 " + summary.replace("✅ ", "")
+        except Exception as e:
+            logger.error("Failed to toggle calendar event: " + str(e))
+            await query.message.reply_text("Failed to update Google Calendar.")
+            return
+
+        keyboard = []
+        for i, e in enumerate(events):
+            s    = e.get("summary", "Untitled")
+            icon = "✅" if s.startswith("✅") else "⬜"
+            keyboard.append([InlineKeyboardButton(icon + " " + s, callback_data="toggle_" + str(i))])
         keyboard.append([InlineKeyboardButton("Save & Close", callback_data="save_done")])
 
-        done_count = sum(1 for t in tasks if t["done"])
+        done_count = sum(1 for e in events if e.get("summary", "").startswith("✅"))
         await query.edit_message_text(
-            "Task Check-In - " + today + "\n"
-            "Completed " + str(done_count) + "/" + str(len(tasks)) + " tasks, " + NAME + ".\n"
+            "Calendar Check-In - " + today + "\n"
+            "Completed " + str(done_count) + "/" + str(len(events)) + " activities, " + NAME + ".\n"
             "Tap to mark done:",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
     elif query.data == "save_done":
-        tasks       = load_tasks(today)
-        done_count  = sum(1 for t in tasks if t["done"])
-        total_count = len(tasks)
-        undone      = [t["title"] for t in tasks if not t["done"]]
+        events      = context.user_data.get("review_events", [])
+        if not events:
+            await query.edit_message_text("Review complete.")
+            return
+
+        done_count  = sum(1 for e in events if e.get("summary", "").startswith("✅"))
+        total_count = len(events)
+        undone      = [e.get("summary", "") for e in events if not e.get("summary", "").startswith("✅")]
 
         if done_count == total_count:
-            msg = "Amazing work, " + NAME + "! You completed ALL " + str(total_count) + " tasks! 🎉"
+            msg = "Amazing work, " + NAME + "! You completed ALL " + str(total_count) + " activities! 🎉"
         else:
             msg = "Day Summary - " + today + "\n\nCompleted: " + str(done_count) + "/" + str(total_count)
             if undone:
-                msg += "\n\nNot done:\n" + "\n".join("- " + t for t in undone)
+                msg += "\n\nRemaining:\n" + "\n".join("- " + t for t in undone)
             msg += "\n\nGood effort, " + NAME + ". Tomorrow is a new chance!"
+        
+        context.user_data["review_events"] = []
         await query.edit_message_text(msg)
 
     elif query.data.startswith("habit_"):
