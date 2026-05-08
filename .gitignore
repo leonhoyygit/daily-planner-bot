@@ -3,3 +3,4 @@ credentials.json
 venv/
 token.json
 credentials.json
+.DS_Store
