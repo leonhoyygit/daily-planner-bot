@@ -377,3 +377,8 @@ def mark_task_complete(event_id: str, done: bool = True):
         event["summary"] = "🤖 " + summary.replace("✅ ", "")
     
     service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
+
+
+def delete_event(event_id: str):
+    service = get_calendar_service()
+    service.events().delete(calendarId="primary", eventId=event_id).execute()

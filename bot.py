@@ -10,7 +10,7 @@ from telegram.ext import (
 )
 from google_calendar import (
     create_tasks, get_todays_tasks, mark_task_complete,
-    resolve_timezone, TIMEZONE_DISPLAY,
+    resolve_timezone, TIMEZONE_DISPLAY, delete_event,
 )
 from scheduler import setup_scheduler
 from storage import save_tasks, load_tasks, update_task_status
@@ -227,6 +227,38 @@ async def send_evening_review(app, chat_id: int):
         "Calendar Check-In - " + today + "\n"
         "Completed " + str(done_count) + "/" + str(len(events)) + " activities.\n"
         "Tap each to mark it done:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+# ── /delete ───────────────────────────────────────────────────────────────────
+async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tz    = pytz.timezone(get_timezone())
+    today = datetime.now(tz).strftime("%Y-%m-%d")
+    
+    try:
+        events = get_todays_tasks(get_timezone())
+    except Exception as e:
+        logger.error("Failed to fetch calendar for delete: " + str(e))
+        await update.message.reply_text("Couldn't reach Google Calendar, " + NAME + ".")
+        return
+
+    if not events:
+        await update.message.reply_text("No calendar events found for today to delete, " + NAME + ".")
+        return
+
+    # Store events in user_data for callback access
+    context.user_data["delete_events"] = events
+
+    keyboard = []
+    for i, event in enumerate(events):
+        summary = event.get("summary", "Untitled")
+        keyboard.append([InlineKeyboardButton("🗑️ " + summary, callback_data="delete_" + str(i))])
+    keyboard.append([InlineKeyboardButton("Cancel", callback_data="delete_cancel")])
+
+    await update.message.reply_text(
+        "Which event would you like to PERMANENTLY delete, " + NAME + "?\n\n"
+        "Tap to remove from Google Calendar:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -485,6 +517,30 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["review_events"] = []
         await query.edit_message_text(msg)
 
+    elif query.data.startswith("delete_"):
+        if query.data == "delete_cancel":
+            context.user_data["delete_events"] = []
+            await query.edit_message_text("Deletion cancelled.")
+            return
+
+        idx    = int(query.data.split("_")[1])
+        events = context.user_data.get("delete_events", [])
+        if not events or idx >= len(events):
+            await query.edit_message_text("Session expired. Please use /delete again.")
+            return
+
+        event   = events[idx]
+        summary = event.get("summary", "Untitled")
+        
+        try:
+            delete_event(event["id"])
+            await query.edit_message_text("🗑️ Deleted from Google Calendar: " + summary)
+        except Exception as e:
+            logger.error("Failed to delete calendar event: " + str(e))
+            await query.message.reply_text("Failed to delete from Google Calendar.")
+        
+        context.user_data["delete_events"] = []
+
     elif query.data.startswith("habit_"):
         parts  = query.data.split("_")
         idx    = int(parts[1])
@@ -534,6 +590,7 @@ def main():
     app.add_handler(CommandHandler("start",         start))
     app.add_handler(CommandHandler("plan",          plan))
     app.add_handler(CommandHandler("review",        review))
+    app.add_handler(CommandHandler("delete",        cmd_delete))
     app.add_handler(CommandHandler("timezone",      cmd_timezone))
     app.add_handler(CommandHandler("settimezone",   cmd_settimezone))
     app.add_handler(CommandHandler("addhabit",      cmd_addhabit))
