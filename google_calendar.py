@@ -100,17 +100,20 @@ def parse_time_str(time_str: str, base_date: datetime, tz, fallback_period: str 
     time_str = time_str.strip().lower().replace(" ", "")
     naive    = base_date.replace(tzinfo=None)
 
-    # Normalise 4-digit compact times: 1030am -> 10:30am, 930pm -> 9:30pm
-    compact = re.match(r"^(\d{3,4})(am|pm)$", time_str)
-    if compact:
-        digits  = compact.group(1)
-        period  = compact.group(2)
+    # Normalise 3 or 4-digit compact times: 2130 -> 21:30, 0930 -> 09:30, 930am -> 9:30am
+    compact_with_period = re.match(r"^(\d{3,4})(am|pm)$", time_str)
+    compact_24h         = re.match(r"^(\d{4})$", time_str)
+    
+    if compact_with_period:
+        digits  = compact_with_period.group(1)
+        period  = compact_with_period.group(2)
         if len(digits) == 3:
-            # 930 -> 9:30
             time_str = digits[0] + ":" + digits[1:] + period
         else:
-            # 1030 -> 10:30
             time_str = digits[:2] + ":" + digits[2:] + period
+    elif compact_24h:
+        digits   = compact_24h.group(1)
+        time_str = digits[:2] + ":" + digits[2:]
 
     for fmt in ["%I:%M%p", "%I%p", "%H:%M", "%H"]:
         try:
