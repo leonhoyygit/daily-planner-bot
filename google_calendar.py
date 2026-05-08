@@ -81,25 +81,36 @@ def resolve_timezone(tz_input: str) -> str:
 
 # ── Time range pattern — matches "9am-11am", "9:00-10:30", "14:00-16:00" ─────
 TIME_RANGE_PATTERN = re.compile(
-    r"(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))",
+    r"(\d{1,4}(?::\d{2})?\s*(?:am|pm))\s*[-–]\s*(\d{1,4}(?::\d{2})?\s*(?:am|pm))",
     re.IGNORECASE,
 )
 
 # Single time pattern
 TIME_PATTERN = re.compile(
-    r"(\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{2}:\d{2})",
+    r"(\d{1,4}(?::\d{2})?\s*(?:am|pm)|\d{2}:\d{2})",
     re.IGNORECASE,
 )
 
 
 def parse_time_str(time_str: str, base_date: datetime, tz, fallback_period: str = None) -> datetime:
     """
-    Convert '9am', '2:30pm', '14:00', or bare '9' into a localized datetime.
-    fallback_period: 'am' or 'pm' — used when the time has no am/pm marker
-    and we need to infer from context (e.g. end time of a range).
+    Convert time strings into localized datetime.
+    Supports: 9am, 9:30am, 930am, 1030am, 14:00, 9, etc.
     """
     time_str = time_str.strip().lower().replace(" ", "")
     naive    = base_date.replace(tzinfo=None)
+
+    # Normalise 4-digit compact times: 1030am -> 10:30am, 930pm -> 9:30pm
+    compact = re.match(r"^(\d{3,4})(am|pm)$", time_str)
+    if compact:
+        digits  = compact.group(1)
+        period  = compact.group(2)
+        if len(digits) == 3:
+            # 930 -> 9:30
+            time_str = digits[0] + ":" + digits[1:] + period
+        else:
+            # 1030 -> 10:30
+            time_str = digits[:2] + ":" + digits[2:] + period
 
     for fmt in ["%I:%M%p", "%I%p", "%H:%M"]:
         try:
