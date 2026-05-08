@@ -72,7 +72,7 @@ daily_planner_bot/
 ## STEP 5 — Install Python & Dependencies
 
 ```bash
-cd ~/daily_planner_bot
+cd ~/GeminiProject/Daily_Planner_Bot
 
 # Create virtual environment with Python 3.11
 python3.11 -m venv venv
@@ -113,25 +113,31 @@ Search your bot username in Telegram → tap Start or type /start
 | /setreward Exercise | Buy new shoes — Sets monthly reward |
 | /habits | All habits with streaks |
 | /habitcheck | Tap to mark today's habits |
+| /delete | PERMANENTLY delete today's events from Google Calendar |
 | /weeklyhabits | 7-day habit grid |
 | /monthlyhabits | Monthly progress + rewards |
 
 ---
 
-## STEP 8 — Flexible Task Date Input
+## STEP 8 — Enhanced Input & Implicit Planning
 
-When sending tasks, include a date and/or time in natural language:
+### 8A — 24-Hour Time Support
+You no longer need to type "am" or "pm". The bot recognizes 24-hour formats:
+- `2130 - Deep work` (9:30 PM)
+- `14:00-16:00 - Meeting` (2 PM to 4 PM)
+- `14 - Quick call` (2 PM)
 
-| What you type | What happens |
-|---------------|-------------|
-| 9am - Team standup | Today, timed 9-10am |
-| 3pm tomorrow - Dentist | Tomorrow, timed 3-4pm |
-| Friday 2pm - Team dinner | Next Friday, timed 2-3pm |
-| 2026-05-15 10am - Flight | May 15, timed 10-11am |
-| Buy groceries tomorrow | Tomorrow, all-day |
-| Go for a walk | Today, all-day |
+### 8B — Implicit Task Adding
+You don't even need to type `/plan`. Just send any text message to the bot, and it will automatically parse it as a task and sync it to your Google Calendar.
 
-Tasks with no date default to today. Tasks with no time are all-day events.
+---
+
+## ⚠️ IMPORTANT REMARKS & REMINDERS
+
+1. **No Concurrent Running:** NEVER run the bot locally on your Mac (via terminal) while it is also running on Railway. This causes a **Conflict Error (409)** and the bot will stop working. Always stop the local bot before deploying to Railway.
+2. **Privacy Mode:** If adding the bot to a group, use **@BotFather** -> `/setprivacy` -> **Disable**. This allows the bot to see messages and sync them automatically.
+3. **Robot Icon (🤖):** Events added by this bot are marked with a 🤖 icon to distinguish them from your personal calendar entries.
+4. **Full Review:** The `/review` command now fetches **all** your Google Calendar activities for today, allowing you to tick off items directly in Telegram.
 
 ---
 
@@ -142,7 +148,7 @@ $5 free credit to start. A lightweight bot costs roughly $0.50-2/month after tha
 ### 9A — Push code to GitHub
 
 ```bash
-cd ~/daily_planner_bot
+cd ~/GeminiProject/Daily_Planner_Bot
 
 git init
 git add .
@@ -220,7 +226,7 @@ You should see the same 200 OK lines as on your Mac.
 ## STEP 10 — Updating the Bot After Code Changes
 
 ```bash
-cd ~/daily_planner_bot
+cd ~/GeminiProject/Daily_Planner_Bot
 source venv/bin/activate
 
 # Test locally first
