@@ -131,6 +131,17 @@ This format is designed to give you a clear sense of accomplishment while keepin
 
 ---
 
+## STEP 9 — Cross-Day Event Support
+
+The bot now correctly handles events that span across midnight. If you enter a time range where the end time is numerically smaller than the start time (e.g., in 24-hour format), the bot automatically assumes the event ends on the following day.
+
+**Examples:**
+- `2200-0000 - Movie night` (10 PM tonight to 12 AM tomorrow)
+- `23:30-01:30 - Late project` (11:30 PM tonight to 1:30 AM tomorrow)
+- `11pm-1am - Night shift` (11 PM tonight to 1 AM tomorrow)
+
+---
+
 ## STEP 10 — Enhanced Input & Implicit Planning
 
 ### 10A — 24-Hour Time Support
@@ -138,6 +149,7 @@ You no longer need to type "am" or "pm". The bot recognizes 24-hour formats:
 - `2130 - Deep work` (9:30 PM)
 - `14:00-16:00 - Meeting` (2 PM to 4 PM)
 - `14 - Quick call` (2 PM)
+- `2200-0000 - Cross-day event` (See Step 9)
 
 ### 10B — Implicit Task Adding
 You don't even need to type `/plan`. Just send any text message to the bot, and it will automatically parse it as a task and sync it to your Google Calendar.
