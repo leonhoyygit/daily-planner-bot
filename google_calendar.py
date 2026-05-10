@@ -382,3 +382,30 @@ def mark_task_complete(event_id: str, done: bool = True):
 def delete_event(event_id: str):
     service = get_calendar_service()
     service.events().delete(calendarId="primary", eventId=event_id).execute()
+
+
+def delete_event_by_name(name: str, timezone: str = "Asia/Tokyo") -> str:
+    """
+    Searches for an event by name in today's calendar and deletes it.
+    Returns the summary of the deleted event if successful, else None.
+    """
+    events = get_todays_tasks(timezone)
+    if not events:
+        return None
+
+    name_lower = name.lower()
+    best_match = None
+
+    for event in events:
+        summary = event.get("summary", "").lower()
+        # Clean up icons for matching
+        clean_summary = summary.replace("🤖", "").replace("✅", "").strip()
+        if name_lower in clean_summary:
+            best_match = event
+            break
+
+    if best_match:
+        delete_event(best_match["id"])
+        return best_match.get("summary", "Untitled")
+    
+    return None

@@ -1,6 +1,8 @@
 import logging
 import json
 import os
+import threading
+from flask import Flask
 from datetime import datetime
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -11,6 +13,7 @@ from telegram.ext import (
 from google_calendar import (
     create_tasks, get_todays_tasks, mark_task_complete,
     resolve_timezone, TIMEZONE_DISPLAY, delete_event,
+    delete_event_by_name,
 )
 from scheduler import setup_scheduler
 from storage import save_tasks, load_tasks, update_task_status
@@ -261,6 +264,51 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Tap to remove from Google Calendar:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+# ── /siri_delete ──────────────────────────────────────────────────────────────
+async def cmd_siri_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Silent deletion for Siri integration."""
+    if not context.args:
+        return
+
+    query = " ".join(context.args)
+    deleted_name = delete_event_by_name(query, get_timezone())
+    
+    if deleted_name:
+        await update.message.reply_text("🗑️ Siri Deleted: " + deleted_name)
+    else:
+        await update.message.reply_text("❓ Siri couldn't find '" + query + "' to delete.")
+
+
+# ── /siri_summary ─────────────────────────────────────────────────────────────
+async def cmd_siri_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Text-only summary for Siri to read aloud."""
+    try:
+        events = get_todays_tasks(get_timezone())
+    except Exception as e:
+        logger.error("Siri summary failed: " + str(e))
+        await update.message.reply_text("I'm sorry, I couldn't access your calendar right now.")
+        return
+
+    if not events:
+        await update.message.reply_text("You have no activities scheduled for today, " + NAME + ".")
+        return
+
+    summary_lines = [f"Hi {NAME}, here is your schedule for today:"]
+    for event in events:
+        title = event.get("summary", "Untitled").replace("🤖 ", "").replace("✅ ", "")
+        start = event.get("start", {})
+        
+        if "dateTime" in start:
+            # Format time for Siri to read naturally (e.g., "9:00 AM")
+            dt = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+            time_str = dt.strftime("%I:%M %p")
+            summary_lines.append(f"At {time_str}: {title}")
+        else:
+            summary_lines.append(f"All day: {title}")
+
+    await update.message.reply_text("\n".join(summary_lines))
 
 
 # ── /addhabit ─────────────────────────────────────────────────────────────────
@@ -583,6 +631,42 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(msg)
 
 
+# ── Flask Web Server for Siri ───────────────────────────────────────────────
+server = Flask(__name__)
+
+@server.route("/")
+def health_check():
+    return "Bot is running!"
+
+@server.route("/siri_summary")
+def siri_summary_endpoint():
+    """Returns a plain text summary for Siri to speak."""
+    try:
+        events = get_todays_tasks(get_timezone())
+    except Exception as e:
+        return f"I'm sorry Leon, I couldn't reach your calendar right now. Error: {str(e)}"
+
+    if not events:
+        return f"Hi {NAME}, you have no activities scheduled for today."
+
+    summary_lines = [f"Hi {NAME}, here is your schedule for today:"]
+    for event in events:
+        title = event.get("summary", "Untitled").replace("🤖 ", "").replace("✅ ", "")
+        start = event.get("start", {})
+        if "dateTime" in start:
+            dt = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+            time_str = dt.strftime("%I:%M %p")
+            summary_lines.append(f"At {time_str}: {title}")
+        else:
+            summary_lines.append(f"All day: {title}")
+
+    return "\n".join(summary_lines)
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    server.run(host="0.0.0.0", port=port)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -591,6 +675,8 @@ def main():
     app.add_handler(CommandHandler("plan",          plan))
     app.add_handler(CommandHandler("review",        review))
     app.add_handler(CommandHandler("delete",        cmd_delete))
+    app.add_handler(CommandHandler("siri_delete",   cmd_siri_delete))
+    app.add_handler(CommandHandler("siri_summary",  cmd_siri_summary))
     app.add_handler(CommandHandler("timezone",      cmd_timezone))
     app.add_handler(CommandHandler("settimezone",   cmd_settimezone))
     app.add_handler(CommandHandler("addhabit",      cmd_addhabit))
@@ -606,6 +692,10 @@ def main():
     setup_scheduler(app, YOUR_CHAT_ID, TIMEZONE)
 
     logger.info("Bot is running for " + NAME + " (" + TIMEZONE + ")...")
+    
+    # Start Flask in a background thread for Siri Voice API
+    threading.Thread(target=run_flask, daemon=True).start()
+    
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
