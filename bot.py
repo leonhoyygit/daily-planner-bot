@@ -640,27 +640,34 @@ def health_check():
 
 @server.route("/siri_summary")
 def siri_summary_endpoint():
-    """Returns a plain text summary for Siri to speak."""
+    """Returns a professional summary of achieved vs pending tasks for Siri."""
     try:
         events = get_todays_tasks(get_timezone())
     except Exception as e:
-        return f"I'm sorry Leon, I couldn't reach your calendar right now. Error: {str(e)}"
+        return f"I'm sorry Leon, I couldn't reach your calendar right now."
 
     if not events:
-        return f"Hi {NAME}, you have no activities scheduled for today."
+        return f"Hi {NAME}, you have a clear schedule today! Enjoy your time."
 
-    summary_lines = [f"Hi {NAME}, here is your schedule for today:"]
-    for event in events:
-        title = event.get("summary", "Untitled").replace("🤖 ", "").replace("✅ ", "")
-        start = event.get("start", {})
-        if "dateTime" in start:
-            dt = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
-            time_str = dt.strftime("%I:%M %p")
-            summary_lines.append(f"At {time_str}: {title}")
-        else:
-            summary_lines.append(f"All day: {title}")
+    completed_tasks = [e for e in events if "✅" in e.get("summary", "")]
+    pending_tasks   = [e for e in events if "✅" not in e.get("summary", "")]
+    
+    total = len(events)
+    done  = len(completed_tasks)
+    
+    summary = f"Hi {NAME}! You've already crushed {done} out of {total} tasks today. "
+    
+    if len(pending_tasks) > 0:
+        summary += f"You still have {len(pending_tasks)} things to do: "
+        pending_titles = []
+        for e in pending_tasks:
+            title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
+            pending_titles.append(title)
+        summary += ", ".join(pending_titles) + ". "
+    else:
+        summary += "Everything is complete! Amazing work!"
 
-    return "\n".join(summary_lines)
+    return summary
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
