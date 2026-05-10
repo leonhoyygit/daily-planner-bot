@@ -109,6 +109,7 @@ Search your bot username in Telegram → tap Start or type /start
 | /start | Welcome message |
 | /plan | Bot asks for today's tasks |
 | /review | Evening task check-in |
+| /siri_summary | Text summary of achieved vs. pending tasks |
 | /addhabit Exercise | Adds a recurring habit |
 | /setreward Exercise | Buy new shoes — Sets monthly reward |
 | /habits | All habits with streaks |
@@ -119,15 +120,26 @@ Search your bot username in Telegram → tap Start or type /start
 
 ---
 
-## STEP 8 — Enhanced Input & Implicit Planning
+## STEP 8 — Achievement-Based Summaries
 
-### 8A — 24-Hour Time Support
+The bot uses a progress-focused format for daily summaries (both in Telegram via `/siri_summary` and via the Siri integration endpoint). Instead of a simple chronological list, it separates your day into:
+
+1.  **✅ What you've achieved:** A list of all tasks you've marked as done today.
+2.  **⏳ Tasks pending to complete:** A list of remaining tasks yet to be finished.
+
+This format is designed to give you a clear sense of accomplishment while keeping you focused on what's left to do.
+
+---
+
+## STEP 10 — Enhanced Input & Implicit Planning
+
+### 10A — 24-Hour Time Support
 You no longer need to type "am" or "pm". The bot recognizes 24-hour formats:
 - `2130 - Deep work` (9:30 PM)
 - `14:00-16:00 - Meeting` (2 PM to 4 PM)
 - `14 - Quick call` (2 PM)
 
-### 8B — Implicit Task Adding
+### 10B — Implicit Task Adding
 You don't even need to type `/plan`. Just send any text message to the bot, and it will automatically parse it as a task and sync it to your Google Calendar.
 
 ---
@@ -141,11 +153,11 @@ You don't even need to type `/plan`. Just send any text message to the bot, and 
 
 ---
 
-## STEP 9 — Deploy to Railway (Run 24/7 Without Your Mac)
+## STEP 11 — Deploy to Railway (Run 24/7 Without Your Mac)
 
 $5 free credit to start. A lightweight bot costs roughly $0.50-2/month after that.
 
-### 9A — Push code to GitHub
+### 11A — Push code to GitHub
 
 ```bash
 cd ~/GeminiProject/Daily_Planner_Bot
@@ -162,14 +174,14 @@ git push -u origin main
 
 The .gitignore ensures credentials.json, token.json, and config.json are never pushed to GitHub.
 
-### 9B — Create Railway project
+### 11B — Create Railway project
 
 1. Go to railway.app → sign up with GitHub
 2. New Project → Deploy from GitHub repo
 3. Select your daily-planner-bot repo
 4. Railway detects the Procfile and starts building automatically
 
-### 9C — Set Environment Variables on Railway
+### 11C — Set Environment Variables on Railway
 
 Project → Variables tab → Add these:
 
@@ -216,14 +228,14 @@ This means Railway env vars needed are:
 | GOOGLE_CREDENTIALS_B64 | base64 encoded credentials.json |
 | GOOGLE_TOKEN_B64 | base64 encoded token.json |
 
-### 9D — Confirm Bot is Running
+### 11D — Confirm Bot is Running
 
 Railway dashboard → your project → Deployments tab → View Logs
 You should see the same 200 OK lines as on your Mac.
 
 ---
 
-## STEP 10 — Updating the Bot After Code Changes
+## STEP 12 — Updating the Bot After Code Changes
 
 ```bash
 cd ~/GeminiProject/Daily_Planner_Bot

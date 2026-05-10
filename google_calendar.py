@@ -159,8 +159,8 @@ def parse_time_range(line: str, base_date: datetime, tz) -> tuple:
     if not start_dt or not end_dt:
         return None, None, line
 
-    # If end time is earlier than start (e.g. 11pm-1am), add a day
-    if end_dt <= start_dt:
+    # If end time is earlier than start (e.g. 11pm-1am), add 12h or 24h
+    while end_dt <= start_dt:
         end_dt += timedelta(hours=12)
 
     cleaned = TIME_RANGE_PATTERN.sub("", line, count=1).strip(" -–—,").strip()

@@ -283,7 +283,7 @@ async def cmd_siri_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /siri_summary ─────────────────────────────────────────────────────────────
 async def cmd_siri_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Text-only summary for Siri to read aloud."""
+    """Text-only summary of achieved and pending tasks for Siri to read aloud."""
     try:
         events = get_todays_tasks(get_timezone())
     except Exception as e:
@@ -295,18 +295,28 @@ async def cmd_siri_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You have no activities scheduled for today, " + NAME + ".")
         return
 
-    summary_lines = [f"Hi {NAME}, here is your schedule for today:"]
-    for event in events:
-        title = event.get("summary", "Untitled").replace("🤖 ", "").replace("✅ ", "")
-        start = event.get("start", {})
-        
-        if "dateTime" in start:
-            # Format time for Siri to read naturally (e.g., "9:00 AM")
-            dt = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
-            time_str = dt.strftime("%I:%M %p")
-            summary_lines.append(f"At {time_str}: {title}")
-        else:
-            summary_lines.append(f"All day: {title}")
+    completed_tasks = [e for e in events if "✅" in e.get("summary", "")]
+    pending_tasks   = [e for e in events if "✅" not in e.get("summary", "")]
+    
+    summary_lines = [f"Hi {NAME}, here is your progress for today:"]
+    
+    # Achievements
+    if completed_tasks:
+        summary_lines.append("\n✅ What you've achieved:")
+        for e in completed_tasks:
+            title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip()
+            summary_lines.append(f"- {title}")
+    else:
+        summary_lines.append("\nNo tasks completed yet. Let's get started!")
+
+    # Pending
+    if pending_tasks:
+        summary_lines.append("\n⏳ Tasks pending to complete:")
+        for e in pending_tasks:
+            title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
+            summary_lines.append(f"- {title}")
+    else:
+        summary_lines.append("\nAmazing work! You've finished everything for today!")
 
     await update.message.reply_text("\n".join(summary_lines))
 
@@ -550,17 +560,33 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Review complete.")
             return
 
-        done_count  = sum(1 for e in events if e.get("summary", "").startswith("✅"))
+        completed_tasks = [e for e in events if e.get("summary", "").startswith("✅")]
+        pending_tasks   = [e for e in events if not e.get("summary", "").startswith("✅")]
+        
+        done_count  = len(completed_tasks)
         total_count = len(events)
-        undone      = [e.get("summary", "") for e in events if not e.get("summary", "").startswith("✅")]
 
         if done_count == total_count:
-            msg = "Amazing work, " + NAME + "! You completed ALL " + str(total_count) + " activities! 🎉"
+            msg = "Amazing work, " + NAME + "! You completed ALL " + str(total_count) + " activities! 🎉\n"
+            for e in completed_tasks:
+                title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip()
+                msg += f"\n- {title}"
         else:
-            msg = "Day Summary - " + today + "\n\nCompleted: " + str(done_count) + "/" + str(total_count)
-            if undone:
-                msg += "\n\nRemaining:\n" + "\n".join("- " + t for t in undone)
-            msg += "\n\nGood effort, " + NAME + ". Tomorrow is a new chance!"
+            msg = f"Day Summary - {today}\n\nCompleted: {done_count}/{total_count}"
+            
+            if completed_tasks:
+                msg += "\n\n✅ What you've achieved:"
+                for e in completed_tasks:
+                    title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip()
+                    msg += f"\n- {title}"
+            
+            if pending_tasks:
+                msg += "\n\n⏳ Remaining tasks:"
+                for e in pending_tasks:
+                    title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
+                    msg += f"\n- {title}"
+            
+            msg += f"\n\nGood effort, {NAME}. Tomorrow is a new chance!"
         
         context.user_data["review_events"] = []
         await query.edit_message_text(msg)
@@ -657,12 +683,13 @@ def siri_summary_endpoint():
     
     summary = f"Hi {NAME}! You've already crushed {done} out of {total} tasks today. "
     
-    if len(pending_tasks) > 0:
+    if completed_tasks:
+        achieved_titles = [e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip() for e in completed_tasks]
+        summary += "You have achieved: " + ", ".join(achieved_titles) + ". "
+
+    if pending_tasks:
         summary += f"You still have {len(pending_tasks)} things to do: "
-        pending_titles = []
-        for e in pending_tasks:
-            title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
-            pending_titles.append(title)
+        pending_titles = [e.get("summary", "Untitled").replace("🤖 ", "").strip() for e in pending_tasks]
         summary += ", ".join(pending_titles) + ". "
     else:
         summary += "Everything is complete! Amazing work!"
