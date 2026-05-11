@@ -12,6 +12,7 @@ A personal Telegram bot designed to help you plan your day, track habits, and st
 The bot's summary features (via `/siri_summary`) are designed to motivate you by focusing on what you've accomplished. Your day is broken down into:
 - **✅ What you've achieved:** All tasks marked as completed.
 - **⏳ Tasks pending to complete:** Your remaining focus for the day.
+- **❌ Tasks missed:** Tasks not completed by the end of the day (marked during `/review`).
 
 ## 🚀 Quick Start
 For full setup instructions, including Google Calendar API configuration and Railway deployment, please refer to the **[SETUP_GUIDE.md](SETUP_GUIDE.md)**.

@@ -372,11 +372,22 @@ def mark_task_complete(event_id: str, done: bool = True):
     summary = event["summary"]
     
     if done and not summary.startswith("✅"):
-        event["summary"] = "✅ " + summary.replace("🤖 ", "").replace("📝 ", "")
+        event["summary"] = "✅ " + summary.replace("🤖 ", "").replace("📝 ", "").replace("❌ ", "")
     elif not done and summary.startswith("✅"):
         event["summary"] = "🤖 " + summary.replace("✅ ", "")
     
     service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
+
+
+def mark_task_incomplete(event_id: str):
+    """Marks a task with a cross symbol if it wasn't completed."""
+    service = get_calendar_service()
+    event   = service.events().get(calendarId="primary", eventId=event_id).execute()
+    summary = event["summary"]
+    
+    if not summary.startswith("❌") and not summary.startswith("✅"):
+        event["summary"] = "❌ " + summary.replace("🤖 ", "").replace("📝 ", "")
+        service.events().update(calendarId="primary", eventId=event_id, body=event).execute()
 
 
 def delete_event(event_id: str):

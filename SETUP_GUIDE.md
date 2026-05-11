@@ -126,6 +126,7 @@ The bot uses a progress-focused format for daily summaries (both in Telegram via
 
 1.  **✅ What you've achieved:** A list of all tasks you've marked as done today.
 2.  **⏳ Tasks pending to complete:** A list of remaining tasks yet to be finished.
+3.  **❌ Tasks missed:** Any tasks that remained unticked after your evening review will automatically be marked with a ❌ in Google Calendar for accountability.
 
 This format is designed to give you a clear sense of accomplishment while keeping you focused on what's left to do.
 

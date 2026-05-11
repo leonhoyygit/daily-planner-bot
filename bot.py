@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 from google_calendar import (
     create_tasks, get_todays_tasks, mark_task_complete,
+    mark_task_incomplete,
     resolve_timezone, TIMEZONE_DISPLAY, delete_event,
     delete_event_by_name,
 )
@@ -296,7 +297,8 @@ async def cmd_siri_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     completed_tasks = [e for e in events if "✅" in e.get("summary", "")]
-    pending_tasks   = [e for e in events if "✅" not in e.get("summary", "")]
+    missed_tasks    = [e for e in events if "❌" in e.get("summary", "")]
+    pending_tasks   = [e for e in events if "✅" not in e.get("summary", "") and "❌" not in e.get("summary", "")]
     
     summary_lines = [f"Hi {NAME}, here is your progress for today:"]
     
@@ -306,8 +308,6 @@ async def cmd_siri_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for e in completed_tasks:
             title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip()
             summary_lines.append(f"- {title}")
-    else:
-        summary_lines.append("\nNo tasks completed yet. Let's get started!")
 
     # Pending
     if pending_tasks:
@@ -315,7 +315,17 @@ async def cmd_siri_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for e in pending_tasks:
             title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
             summary_lines.append(f"- {title}")
-    else:
+    
+    # Missed
+    if missed_tasks:
+        summary_lines.append("\n❌ Tasks missed:")
+        for e in missed_tasks:
+            title = e.get("summary", "Untitled").replace("❌ ", "").replace("🤖 ", "").strip()
+            summary_lines.append(f"- {title}")
+
+    if not pending_tasks and not completed_tasks and not missed_tasks:
+        summary_lines.append("\nNo tasks found for today.")
+    elif not pending_tasks and completed_tasks:
         summary_lines.append("\nAmazing work! You've finished everything for today!")
 
     await update.message.reply_text("\n".join(summary_lines))
@@ -585,6 +595,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for e in pending_tasks:
                     title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
                     msg += f"\n- {title}"
+                    # Mark as incomplete on Google Calendar
+                    try:
+                        mark_task_incomplete(e["id"])
+                    except Exception as ex:
+                        logger.error(f"Failed to mark task {e['id']} as incomplete: {ex}")
             
             msg += f"\n\nGood effort, {NAME}. Tomorrow is a new chance!"
         
@@ -676,7 +691,8 @@ def siri_summary_endpoint():
         return f"Hi {NAME}, you have a clear schedule today! Enjoy your time."
 
     completed_tasks = [e for e in events if "✅" in e.get("summary", "")]
-    pending_tasks   = [e for e in events if "✅" not in e.get("summary", "")]
+    pending_tasks   = [e for e in events if "✅" not in e.get("summary", "") and "❌" not in e.get("summary", "")]
+    missed_tasks    = [e for e in events if "❌" in e.get("summary", "")]
     
     total = len(events)
     done  = len(completed_tasks)
@@ -691,8 +707,14 @@ def siri_summary_endpoint():
         summary += f"You still have {len(pending_tasks)} things to do: "
         pending_titles = [e.get("summary", "Untitled").replace("🤖 ", "").strip() for e in pending_tasks]
         summary += ", ".join(pending_titles) + ". "
-    else:
-        summary += "Everything is complete! Amazing work!"
+    
+    if missed_tasks:
+        summary += f"You missed {len(missed_tasks)} tasks: "
+        missed_titles = [e.get("summary", "Untitled").replace("❌ ", "").replace("🤖 ", "").strip() for e in missed_tasks]
+        summary += ", ".join(missed_titles) + ". "
+    
+    if not pending_tasks and total > 0:
+        summary += "Everything else is complete! Amazing work!"
 
     return summary
 
