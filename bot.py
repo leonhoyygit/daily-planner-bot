@@ -541,7 +541,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mark_task_complete(event["id"], not is_done)
             # Update local list
             if not is_done:
-                event["summary"] = "✅ " + summary.replace("🤖 ", "").replace("📝 ", "")
+                event["summary"] = "✅ " + summary.replace("🤖 ", "").replace("📝 ", "").replace("❌ ", "")
             else:
                 event["summary"] = "🤖 " + summary.replace("✅ ", "")
         except Exception as e:
@@ -579,7 +579,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if done_count == total_count:
             msg = "Amazing work, " + NAME + "! You completed ALL " + str(total_count) + " activities! 🎉\n"
             for e in completed_tasks:
-                title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip()
+                title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").replace("❌ ", "").strip()
                 msg += f"\n- {title}"
         else:
             msg = f"Day Summary - {today}\n\nCompleted: {done_count}/{total_count}"
@@ -587,7 +587,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if completed_tasks:
                 msg += "\n\n✅ What you've achieved:"
                 for e in completed_tasks:
-                    title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").strip()
+                    title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").replace("❌ ", "").strip()
                     msg += f"\n- {title}"
             
             if pending_tasks:
