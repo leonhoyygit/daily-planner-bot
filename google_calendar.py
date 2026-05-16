@@ -20,6 +20,7 @@ import pytz
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 
 # ── Decode Google credentials from Railway env vars ───────────────────────────
@@ -271,10 +272,19 @@ def get_calendar_service():
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except RefreshError as e:
+                if "invalid_grant" in str(e).lower():
+                    # Token is revoked or expired (likely due to "Testing" mode in GCP)
+                    if os.path.exists(TOKEN_FILE):
+                        os.remove(TOKEN_FILE)
+                    raise Exception("REAUTH_NEEDED")
+                else:
+                    raise e
         else:
             flow  = InstalledAppFlow.from_client_secrets_file(CREDS_FILE, SCOPES)
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(port=0, prompt='consent', access_type='offline')
         with open(TOKEN_FILE, "w") as f:
             f.write(creds.to_json())
     return build("calendar", "v3", credentials=creds)

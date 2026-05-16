@@ -189,9 +189,21 @@ async def receive_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error("Calendar sync error: " + str(e))
-        await update.message.reply_text(
-            "Tasks saved locally " + NAME + ", but Calendar sync failed.\nError: " + str(e)
-        )
+        if "REAUTH_NEEDED" in str(e):
+            await update.message.reply_text(
+                "🚨 **Google Calendar Token Expired**\n\n"
+                "To fix this permanently, please follow these steps:\n\n"
+                "1️⃣ Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials/consent)\n"
+                "2️⃣ Change your 'Publishing Status' from **Testing** to **In Production**.\n"
+                "3️⃣ Run the bot locally on your Mac once to re-authenticate.\n"
+                "4️⃣ Update your `GOOGLE_TOKEN_B64` variable on Railway with the new token.\n\n"
+                "This stops the token from expiring every 7 days.",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                "Tasks saved locally " + NAME + ", but Calendar sync failed.\nError: " + str(e)
+            )
 
 
 # ── /review ───────────────────────────────────────────────────────────────────
@@ -207,7 +219,19 @@ async def send_evening_review(app, chat_id: int):
         events = get_todays_tasks(get_timezone())
     except Exception as e:
         logger.error("Failed to fetch calendar for review: " + str(e))
-        await app.bot.send_message(chat_id, "Couldn't reach Google Calendar for your review, " + NAME + ".")
+        if "REAUTH_NEEDED" in str(e):
+            await app.bot.send_message(
+                chat_id, 
+                "🚨 **Google Calendar Token Expired**\n\n"
+                "To fix this permanently, please follow these steps:\n\n"
+                "1️⃣ Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials/consent)\n"
+                "2️⃣ Change your 'Publishing Status' from **Testing** to **In Production**.\n"
+                "3️⃣ Run the bot locally on your Mac once to re-authenticate.\n"
+                "4️⃣ Update your `GOOGLE_TOKEN_B64` variable on Railway with the new token.",
+                parse_mode="Markdown"
+            )
+        else:
+            await app.bot.send_message(chat_id, "Couldn't reach Google Calendar for your review, " + NAME + ".")
         return
 
     if not events:

@@ -63,6 +63,7 @@ daily_planner_bot/
 5. Configure consent screen if prompted:
    - User type: External
    - App name: Daily Planner Bot
+   - **IMPORTANT: Publishing Status** → Set to **In Production** (This prevents your token from expiring every 7 days).
    - Add your Gmail as a Test user (OAuth consent screen → scroll to bottom → + Add Users)
 6. Application type: Desktop app → Create
 7. Download JSON → rename to credentials.json → move to project folder
