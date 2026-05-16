@@ -7,6 +7,7 @@ A personal Telegram bot designed to help you plan your day, track habits, and st
 - **Habit Tracking:** Monitor daily habits and maintain streaks for monthly rewards.
 - **Achievement-Based Summaries:** Get daily reports that highlight your achievements and pending tasks.
 - **Siri Integration:** Specialized endpoint for Siri to read your progress aloud.
+- **Robust Authentication:** Built-in handling for Google token expiration with proactive re-authentication instructions.
 
 ## 📊 Achievement-Based Summaries
 The bot's summary features (via `/siri_summary`) are designed to motivate you by focusing on what you've accomplished. Your day is broken down into:
