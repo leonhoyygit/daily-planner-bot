@@ -350,10 +350,14 @@ def create_tasks(task_lines: list, timezone: str = "Asia/Tokyo") -> list:
         # 4. All-day event
         if not title:
             title = raw_line.strip()
+        
+        # All-day events: end date is exclusive (should be tomorrow)
+        end_date_str = (target_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        
         event = {
             "summary":     "🤖 " + title,
             "start":       {"date": date_str},
-            "end":         {"date": date_str},
+            "end":         {"date": end_date_str},
             "description": "Added by Daily Planner Bot",
             "colorId":     "5",
         }
@@ -367,13 +371,34 @@ def get_todays_tasks(timezone: str = "Asia/Tokyo") -> list:
     service  = get_calendar_service()
     tz       = pytz.timezone(timezone)
     today    = datetime.now(tz)
-    time_min = today.replace(hour=0,  minute=0,  second=0,  microsecond=0).isoformat()
-    time_max = today.replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
+    
+    # Define a slightly wider window to account for timezone shifts,
+    # then filter strictly by the local date.
+    time_min = (today - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    time_max = (today + timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
+    
     result   = service.events().list(
         calendarId="primary", timeMin=time_min, timeMax=time_max,
         singleEvents=True, orderBy="startTime",
     ).execute()
-    return result.get("items", [])
+    
+    events = result.get("items", [])
+    today_str = today.strftime("%Y-%m-%d")
+    filtered = []
+    
+    for e in events:
+        start = e.get("start", {})
+        if "date" in start:
+            # All-day event
+            if start["date"] == today_str:
+                filtered.append(e)
+        elif "dateTime" in start:
+            # Timed event — convert to bot's timezone and check date
+            dt = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
+            if dt.astimezone(tz).strftime("%Y-%m-%d") == today_str:
+                filtered.append(e)
+                
+    return filtered
 
 
 def mark_task_complete(event_id: str, done: bool = True):

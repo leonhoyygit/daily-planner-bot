@@ -614,18 +614,35 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     title = e.get("summary", "Untitled").replace("✅ ", "").replace("🤖 ", "").replace("❌ ", "").strip()
                     msg += f"\n- {title}"
             
+            # Check if any pending tasks are in the future
+            now = datetime.now(tz)
+            future_count = 0
             if pending_tasks:
                 msg += "\n\n⏳ Remaining tasks:"
                 for e in pending_tasks:
                     title = e.get("summary", "Untitled").replace("🤖 ", "").strip()
                     msg += f"\n- {title}"
-                    # Mark as incomplete on Google Calendar
+                    
+                    # Check if it's in the future
+                    start = e.get("start", {})
+                    if "dateTime" in start:
+                        start_dt = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00")).astimezone(tz)
+                        if start_dt > now:
+                            future_count += 1
+                    
+                    # Mark as incomplete on Google Calendar (only if not in the future)
+                    # Actually, if the user is reviewing, they might want to mark them ❌ even if future.
+                    # But for now, let's just mark them ❌ as requested by the current logic,
+                    # but change the closing message.
                     try:
                         mark_task_incomplete(e["id"])
                     except Exception as ex:
                         logger.error(f"Failed to mark task {e['id']} as incomplete: {ex}")
             
-            msg += f"\n\nGood effort, {NAME}. Tomorrow is a new chance!"
+            if future_count > 0:
+                msg += f"\n\nYou still have {future_count} tasks scheduled for later today. Keep going, {NAME}!"
+            else:
+                msg += f"\n\nGood effort, {NAME}. Tomorrow is a new chance!"
         
         context.user_data["review_events"] = []
         await query.edit_message_text(msg)
